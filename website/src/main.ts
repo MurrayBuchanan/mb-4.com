@@ -1,4 +1,6 @@
 import './style.css'
+import gsap from 'gsap'
+import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import brandLogoUrl from './assets/brand_logo.svg'
 import brandTitleUrl from './assets/brand_title.svg'
 import brandCaptionUrl from './assets/brand_caption.svg'
@@ -14,9 +16,11 @@ const NAV_LINKS = [
 ] as const
 
 const ANNOUNCEMENT = 'ANNOUNCEMENT'
+const MOBILE_MEDIA_QUERY = '(max-width: 700px)'
+const THEME_COUNT = VAA_THEME_SEQUENCE.length
 
 function randomThemeIndex(): number {
-  return Math.floor(Math.random() * VAA_THEME_SEQUENCE.length)
+  return Math.floor(Math.random() * THEME_COUNT)
 }
 
 let loopThemeIndex = randomThemeIndex()
@@ -61,6 +65,15 @@ function rgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
+function positiveMod(n: number, d: number): number {
+  return ((n % d) + d) % d
+}
+
+function setTextContent(selector: string, text: string): void {
+  const el = document.querySelector(selector)
+  if (el) el.textContent = text
+}
+
 function applyTheme(theme: VAATheme): void {
   const root = document.documentElement
   const text = readableOn(theme.background, theme.text, 4.5)
@@ -91,7 +104,7 @@ function applyTheme(theme: VAATheme): void {
 }
 
 function currentLoopTheme(): VAATheme {
-  return VAA_THEME_SEQUENCE[((loopThemeIndex % VAA_THEME_SEQUENCE.length) + VAA_THEME_SEQUENCE.length) % VAA_THEME_SEQUENCE.length]
+  return VAA_THEME_SEQUENCE[positiveMod(loopThemeIndex, THEME_COUNT)]
 }
 
 function lettersMarkup(s: string, baseDelayMs: number): string {
@@ -291,6 +304,10 @@ function pad2(n: number): string {
   return n < 10 ? `0${n}` : String(n)
 }
 
+function formatShortDate(d: Date): string {
+  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${String(d.getFullYear()).slice(-2)}`
+}
+
 /** Sets --vaa-masthead-h for fixed main / mobile padding (spec bar + dash + padded title). */
 function initMastheadHeight(): void {
   const el = document.querySelector('.vaa__masthead')
@@ -311,14 +328,10 @@ function initMastheadHeight(): void {
 function initNavRailClock(): void {
   const tick = (): void => {
     const d = new Date()
-    const clock = document.querySelector('[data-nav-clock]')
-    if (clock) clock.textContent = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
-    const dateEl = document.querySelector('[data-nav-date]')
-    if (dateEl)
-      dateEl.textContent = `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${String(d.getFullYear()).slice(-2)}`
-    const signupDate = document.querySelector('[data-signup-date]')
-    if (signupDate)
-      signupDate.textContent = `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${String(d.getFullYear()).slice(-2)}`
+    const dateText = formatShortDate(d)
+    setTextContent('[data-nav-clock]', `${pad2(d.getHours())}:${pad2(d.getMinutes())}`)
+    setTextContent('[data-nav-date]', dateText)
+    setTextContent('[data-signup-date]', dateText)
   }
   tick()
   window.setInterval(tick, 30_000)
@@ -348,14 +361,17 @@ function initPastViewportTheme(): void {
 function initCertificateScrollCssFallback(): void {
   const cert = document.getElementById('cert-wrap')
   if (!cert) return
+  const CERT_REVEAL_SCROLL_OFFSET_VH = 38
 
   let raf = 0
   const tick = (): void => {
     const vh = window.visualViewport?.height ?? window.innerHeight
     const sy = window.scrollY
-    const mobile = window.matchMedia('(max-width: 700px)').matches
+    const revealOffsetPx = (CERT_REVEAL_SCROLL_OFFSET_VH / 100) * vh
+    const revealY = Math.max(0, sy - revealOffsetPx)
+    const mobile = window.matchMedia(MOBILE_MEDIA_QUERY).matches
     const denom = mobile ? 1.5 * vh : 3 * vh
-    const t = Math.max(0, Math.min(1, sy / Math.max(1, denom)))
+    const t = Math.max(0, Math.min(1, revealY / Math.max(1, denom)))
 
     const scaleBase = mobile ? 0.52 : 0.4
     const scaleTarget = 1.02
@@ -402,15 +418,17 @@ function initInfiniteLoopScroll(): void {
   let nearBottomTimer: number | null = null
 
   const applyLoopTheme = (): void => {
-    loopThemeIndex = cycle % VAA_THEME_SEQUENCE.length
+    loopThemeIndex = positiveMod(cycle, THEME_COUNT)
     applyTheme(currentLoopTheme())
     const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
     if (meta) meta.setAttribute('content', currentLoopTheme().themeColorMeta)
   }
 
   const EDGE_PX = 1
-  const BOTTOM_DWELL_MS = 160
-  const LOOP_RESET_TARGET_VH = 0.08
+  const EDGE_DWELL_MS = 180
+  const LOOP_RESET_TARGET_VH = 0.46
+  const LOOP_FADE_OUT_MS = 190
+  const LOOP_FADE_IN_MS = 320
   const loopLeadPx = (): number => {
     // Only trigger at the true bottom so footer/form content remains reachable.
     return EDGE_PX
@@ -429,23 +447,29 @@ function initInfiniteLoopScroll(): void {
     const jumpWithoutFlash = (target: number): void => {
       adjusting = true
       document.documentElement.classList.add('vaa-loop-soft-reset')
+      document.documentElement.classList.add('vaa-loop-crossfade')
+      document.documentElement.classList.add('vaa-loop-fade-out')
       document.documentElement.classList.add('vaa-loop-snap')
       document.documentElement.classList.add('vaa-loop-hide-stage')
       window.setTimeout(() => {
         window.scrollTo({ top: target, behavior: 'auto' })
         window.dispatchEvent(new CustomEvent('vaa:loop-reset'))
+        document.documentElement.classList.remove('vaa-loop-fade-out')
+        document.documentElement.classList.add('vaa-loop-fade-in')
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             document.documentElement.classList.remove('vaa-loop-snap')
             document.documentElement.classList.remove('vaa-loop-hide-stage')
             window.setTimeout(() => {
               document.documentElement.classList.remove('vaa-loop-soft-reset')
-            }, 120)
+              document.documentElement.classList.remove('vaa-loop-crossfade')
+              document.documentElement.classList.remove('vaa-loop-fade-in')
+            }, LOOP_FADE_IN_MS)
             adjusting = false
             lastY = window.scrollY
           })
         })
-      }, 72)
+      }, LOOP_FADE_OUT_MS)
     }
 
     if (nearBottom) {
@@ -461,7 +485,7 @@ function initInfiniteLoopScroll(): void {
           cycle++
           applyLoopTheme()
           jumpWithoutFlash(Math.max(EDGE_PX, getInitialVhPx() * LOOP_RESET_TARGET_VH))
-        }, BOTTOM_DWELL_MS)
+        }, EDGE_DWELL_MS)
       }
       lastY = y
       return
@@ -487,7 +511,7 @@ function initReleaseFixedLayersAfterCertificate(): void {
   let raf = 0
   const tick = (): void => {
     const vh = getInitialVhPx()
-    const mobile = window.matchMedia('(max-width: 700px)').matches
+    const mobile = window.matchMedia(MOBILE_MEDIA_QUERY).matches
     const releaseY = (mobile ? RELEASE_AFTER_VH_MOBILE : RELEASE_AFTER_VH_DESKTOP) * vh
     const releaseOffset = Math.max(0, window.scrollY - releaseY)
     root.style.setProperty('--vaa-fixed-release-y', `${releaseOffset}px`)
@@ -505,6 +529,116 @@ function initReleaseFixedLayersAfterCertificate(): void {
   window.addEventListener('scroll', schedule, { passive: true })
   window.addEventListener('resize', schedule, { passive: true })
   tick()
+}
+
+function initScrollFirmStops(): void {
+  const introSection = document.querySelector<HTMLElement>('.vaa__scroll-announce')
+  const footer = document.getElementById('vaa-footer')
+  if (!introSection || !footer) return
+
+  gsap.registerPlugin(ScrollTrigger)
+
+  const introLanding = gsap.timeline({
+    defaults: { ease: 'none' },
+    scrollTrigger: {
+      id: 'vaa-firm-stop-intro',
+      trigger: introSection,
+      start: 'top top',
+      end: () => `+=${Math.round(getInitialVhPx() * 0.12)}`,
+      pin: true,
+      pinSpacing: false,
+      scrub: 1.8,
+      anticipatePin: 1,
+      invalidateOnRefresh: true,
+    },
+  })
+  introLanding.to(introSection, { yPercent: -2.2, duration: 0.72 }).to(introSection, { yPercent: -3, duration: 0.28 })
+
+  const footerLanding = gsap.timeline({
+    defaults: { ease: 'none' },
+    scrollTrigger: {
+      id: 'vaa-firm-stop-form-end',
+      trigger: footer,
+      start: 'bottom bottom',
+      end: () => `+=${Math.round(getInitialVhPx() * 0.16)}`,
+      pin: true,
+      pinSpacing: true,
+      scrub: 1.8,
+      anticipatePin: 1,
+      invalidateOnRefresh: true,
+    },
+  })
+  footerLanding.to(footer, { yPercent: -1.8, duration: 0.68 }).to(footer, { yPercent: -2.5, duration: 0.32 })
+}
+
+function initImageSlideFadeIn(): void {
+  const imageLike = Array.from(
+    document.querySelectorAll<HTMLElement>('.vaa img, .vaa picture, .vaa canvas'),
+  )
+  if (!imageLike.length) return
+  gsap.set(imageLike, { opacity: 0, x: -48 })
+  gsap.to(imageLike, {
+    opacity: 1,
+    x: 0,
+    duration: 1,
+    ease: 'power3.out',
+    stagger: 0.16,
+    delay: 0.15,
+    clearProps: 'opacity,transform',
+  })
+}
+
+interface TypewriterChunk {
+  node: Text
+  text: string
+  start: number
+  end: number
+}
+
+function initTypewriterText(): void {
+  const root = document.querySelector('.vaa')
+  if (!root) return
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  const chunks: TypewriterChunk[] = []
+  let cursor = 0
+  let current = walker.nextNode()
+  while (current) {
+    const node = current as Text
+    const parent = node.parentElement
+    const text = node.textContent ?? ''
+    if (
+      parent &&
+      text.trim().length > 0 &&
+      !parent.closest('script,style,noscript,textarea,option') &&
+      !parent.closest('[data-nav-date],[data-nav-clock],[data-signup-date],.vaa__headline')
+    ) {
+      chunks.push({ node, text, start: cursor, end: cursor + text.length })
+      cursor += text.length
+      node.textContent = ''
+    }
+    current = walker.nextNode()
+  }
+
+  if (!chunks.length || cursor === 0) return
+
+  const charsPerSecond = 120
+  const start = performance.now()
+  const render = (now: number): void => {
+    const revealed = Math.floor(((now - start) / 1000) * charsPerSecond)
+    for (const chunk of chunks) {
+      if (revealed <= chunk.start) {
+        chunk.node.textContent = ''
+      } else if (revealed >= chunk.end) {
+        chunk.node.textContent = chunk.text
+      } else {
+        chunk.node.textContent = chunk.text.slice(0, revealed - chunk.start)
+      }
+    }
+    if (revealed < cursor) requestAnimationFrame(render)
+  }
+
+  requestAnimationFrame(render)
 }
 
 async function initCertificate(): Promise<void> {
@@ -538,4 +672,7 @@ initNavRailClock()
 initPastViewportTheme()
 initInfiniteLoopScroll()
 initReleaseFixedLayersAfterCertificate()
+initScrollFirmStops()
+initImageSlideFadeIn()
+initTypewriterText()
 void initCertificate()

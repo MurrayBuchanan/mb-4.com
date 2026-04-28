@@ -88,6 +88,7 @@ export async function initCertificateScene(
   container: HTMLElement,
   canvas: HTMLCanvasElement,
 ): Promise<CertificateSceneResult | null> {
+  const CERT_REVEAL_SCROLL_OFFSET_VH = 38
   const initialMobile = window.innerWidth <= 700
   let { map, foil, aspect } = await loadTextures(initialMobile)
 
@@ -172,7 +173,7 @@ export async function initCertificateScene(
     window.innerWidth,
     window.innerHeight,
     initialMobile,
-    0,
+    CERT_REVEAL_SCROLL_OFFSET_VH,
   )
   let smoothed: CertificateTarget = { ...visual }
 
@@ -188,7 +189,7 @@ export async function initCertificateScene(
     const w = window.innerWidth
     const h = window.innerHeight
     const mobile = w <= 700
-    visual = computeCertificateTarget(window.scrollY, w, h, mobile, 0)
+    visual = computeCertificateTarget(window.scrollY, w, h, mobile, CERT_REVEAL_SCROLL_OFFSET_VH)
     smoothed = { ...visual }
     mouseTarget.set(0, 0)
     mouseSmoothed.set(0, 0)
@@ -229,7 +230,7 @@ export async function initCertificateScene(
     const h = window.innerHeight
     const mobile = w <= 700
 
-    visual = computeCertificateTarget(window.scrollY, w, h, mobile, 0)
+    visual = computeCertificateTarget(window.scrollY, w, h, mobile, CERT_REVEAL_SCROLL_OFFSET_VH)
     smoothed = smoothCertificateVisual(smoothed, visual)
 
     mesh.scale.setScalar(smoothed.scale)
