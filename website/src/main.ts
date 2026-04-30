@@ -175,21 +175,27 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
   </div>
 
   <main class="vaa__main">
-    <section class="vaa__feature-strip" aria-label="Virgil Abloh Archive feature">
+    <section class="vaa__feature-section vaa__feature-section--lead" aria-label="Virgil Abloh Archive title">
       <article class="vaa__feature-card vaa__feature-card--lead">
         <div class="vaa__feature-meta">
-          <span>V.A.A. ARCHIVE</span>
-          <span>DD/MM/YY</span>
-          <span>MISSION</span>
+          <span class="vaa__feature-meta-label">V.A.A. ARCHIVE</span>
+          <span class="vaa__feature-meta-rule" aria-hidden="true"></span>
+          <span class="vaa__feature-meta-label">DD/MM/YY</span>
+          <span class="vaa__feature-meta-rule" aria-hidden="true"></span>
+          <span class="vaa__feature-meta-label">MISSION</span>
         </div>
         <h2 class="vaa__feature-title">The Virgil Abloh Archive</h2>
       </article>
+    </section>
+    <section class="vaa__feature-section vaa__feature-section--detail" aria-label="Virgil Abloh Archive mission detail">
       <article class="vaa__feature-card vaa__feature-card--detail">
         <div class="vaa__feature-pill" aria-hidden="true"></div>
         <div class="vaa__feature-meta">
-          <span>V.A.A. ARCHIVE</span>
-          <span>S-26</span>
-          <span>V. 001</span>
+          <span class="vaa__feature-meta-label">V.A.A. ARCHIVE</span>
+          <span class="vaa__feature-meta-rule" aria-hidden="true"></span>
+          <span class="vaa__feature-meta-label">S-26</span>
+          <span class="vaa__feature-meta-rule" aria-hidden="true"></span>
+          <span class="vaa__feature-meta-label">V. 001</span>
         </div>
         <p class="vaa__feature-copy">
           The Virgil Abloh Archive is a collection of over 20,000 objects from Virgil's creative practice, spanning fashion,
@@ -216,9 +222,11 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 
   <footer class="vaa__footer" id="vaa-footer">
     <div class="vaa__footer-top-meta">
-      <span>V.A.A. ARCHIVE</span>
-      <span>S-26</span>
-      <span>V. 001</span>
+      <span class="vaa__footer-top-meta-item">V.A.A. ARCHIVE</span>
+      <span class="vaa__footer-inline-rule" aria-hidden="true"></span>
+      <span class="vaa__footer-top-meta-item">S-26</span>
+      <span class="vaa__footer-inline-rule" aria-hidden="true"></span>
+      <span class="vaa__footer-top-meta-item">V. 001</span>
     </div>
     <h2 class="vaa__footer-hero" aria-label="Join the archive">
       <span class="vaa__footer-hero-main">Join<br />archive</span>
@@ -226,7 +234,9 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     <div class="vaa__footer-spacer" aria-hidden="true"></div>
     <div class="vaa__footer-head">
       <span class="vaa__footer-head-title">MEMBERSHIP SIGNUP</span>
+      <span class="vaa__footer-inline-rule" aria-hidden="true"></span>
       <span class="vaa__footer-head-date" data-signup-date>DD/MM/YY</span>
+      <span class="vaa__footer-inline-rule vaa__footer-inline-rule--issue" aria-hidden="true"></span>
       <span class="vaa__footer-head-issue">V. 001</span>
     </div>
     <p class="vaa__footer-lead">
@@ -413,9 +423,10 @@ function initCertificateScrollCssFallback(): void {
 
 function initInfiniteLoopScroll(): void {
   let lastY = window.scrollY
+  let lastSampleTs = performance.now()
+  let smoothedVelocityY = 0
   let adjusting = false
   let cycle = loopThemeIndex
-  let nearBottomTimer: number | null = null
 
   const applyLoopTheme = (): void => {
     loopThemeIndex = positiveMod(cycle, THEME_COUNT)
@@ -425,18 +436,50 @@ function initInfiniteLoopScroll(): void {
   }
 
   const EDGE_PX = 1
-  const EDGE_DWELL_MS = 180
   const LOOP_RESET_TARGET_VH = 0.46
-  const LOOP_FADE_OUT_MS = 190
-  const LOOP_FADE_IN_MS = 320
   const loopLeadPx = (): number => {
-    // Only trigger at the true bottom so footer/form content remains reachable.
-    return EDGE_PX
+    // Trigger before the hard bottom edge so momentum never "hits a wall".
+    const vh = getInitialVhPx()
+    const mobile = window.matchMedia(MOBILE_MEDIA_QUERY).matches
+    const factor = mobile ? 0.14 : 0.18
+    return Math.max(EDGE_PX, vh * factor)
+  }
+
+  const continueMomentumAfterLoop = (initialVelocityPxPerMs: number): void => {
+    if (initialVelocityPxPerMs <= 0.05) return
+
+    let velocity = Math.min(initialVelocityPxPerMs, 4.5)
+    let prevTs = performance.now()
+    const startedAt = prevTs
+    const MAX_MS = 900
+
+    const step = (now: number): void => {
+      const elapsed = now - startedAt
+      if (elapsed >= MAX_MS || velocity <= 0.02) return
+
+      const dt = Math.max(1, now - prevTs)
+      prevTs = now
+
+      // Exponential decay keeps momentum natural while fading out quickly.
+      velocity *= Math.exp(-dt / 180)
+      const dy = velocity * dt
+      if (dy <= 0.1) return
+
+      window.scrollBy({ top: dy, behavior: 'auto' })
+      requestAnimationFrame(step)
+    }
+
+    requestAnimationFrame(step)
   }
 
   const onScroll = (): void => {
     if (adjusting) return
     const y = window.scrollY
+    const now = performance.now()
+    const dt = Math.max(1, now - lastSampleTs)
+    const instantVelocityY = (y - lastY) / dt
+    smoothedVelocityY = smoothedVelocityY * 0.7 + instantVelocityY * 0.3
+    lastSampleTs = now
     const maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
     if (maxY <= EDGE_PX * 4) return
 
@@ -444,56 +487,44 @@ function initInfiniteLoopScroll(): void {
     const triggerY = Math.max(0, maxY - loopLeadPx())
     const nearBottom = y >= triggerY
 
-    const jumpWithoutFlash = (target: number): void => {
+    const jumpWithoutFlash = (target: number, carryVelocityPxPerMs: number): void => {
       adjusting = true
       document.documentElement.classList.add('vaa-loop-soft-reset')
       document.documentElement.classList.add('vaa-loop-crossfade')
-      document.documentElement.classList.add('vaa-loop-fade-out')
       document.documentElement.classList.add('vaa-loop-snap')
       document.documentElement.classList.add('vaa-loop-hide-stage')
-      window.setTimeout(() => {
-        window.scrollTo({ top: target, behavior: 'auto' })
-        window.dispatchEvent(new CustomEvent('vaa:loop-reset'))
-        document.documentElement.classList.remove('vaa-loop-fade-out')
-        document.documentElement.classList.add('vaa-loop-fade-in')
+
+      window.scrollTo({ top: target, behavior: 'auto' })
+      continueMomentumAfterLoop(carryVelocityPxPerMs)
+      window.dispatchEvent(new CustomEvent('vaa:loop-reset'))
+      document.documentElement.classList.add('vaa-loop-fade-in')
+      requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            document.documentElement.classList.remove('vaa-loop-snap')
-            document.documentElement.classList.remove('vaa-loop-hide-stage')
-            window.setTimeout(() => {
-              document.documentElement.classList.remove('vaa-loop-soft-reset')
-              document.documentElement.classList.remove('vaa-loop-crossfade')
-              document.documentElement.classList.remove('vaa-loop-fade-in')
-            }, LOOP_FADE_IN_MS)
-            adjusting = false
-            lastY = window.scrollY
-          })
+          document.documentElement.classList.remove('vaa-loop-snap')
+          document.documentElement.classList.remove('vaa-loop-hide-stage')
+          window.setTimeout(() => {
+            document.documentElement.classList.remove('vaa-loop-soft-reset')
+            document.documentElement.classList.remove('vaa-loop-crossfade')
+            document.documentElement.classList.remove('vaa-loop-fade-in')
+          }, 220)
+          adjusting = false
+          lastY = window.scrollY
+          lastSampleTs = performance.now()
         })
-      }, LOOP_FADE_OUT_MS)
+      })
     }
 
     if (nearBottom) {
-      // Scroll events can stop at the hard bottom edge, so use a timer-based dwell trigger.
-      if (movingDown && nearBottomTimer == null) {
-        nearBottomTimer = window.setTimeout(() => {
-          nearBottomTimer = null
-          if (adjusting) return
-          const currentY = window.scrollY
-          const currentMaxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
-          const currentTriggerY = Math.max(0, currentMaxY - loopLeadPx())
-          if (currentY < currentTriggerY) return
-          cycle++
-          applyLoopTheme()
-          jumpWithoutFlash(Math.max(EDGE_PX, getInitialVhPx() * LOOP_RESET_TARGET_VH))
-        }, EDGE_DWELL_MS)
+      if (movingDown) {
+        cycle++
+        applyLoopTheme()
+        jumpWithoutFlash(
+          Math.max(EDGE_PX, getInitialVhPx() * LOOP_RESET_TARGET_VH),
+          Math.max(0, smoothedVelocityY),
+        )
       }
       lastY = y
       return
-    }
-
-    if (nearBottomTimer != null) {
-      window.clearTimeout(nearBottomTimer)
-      nearBottomTimer = null
     }
 
     lastY = y
